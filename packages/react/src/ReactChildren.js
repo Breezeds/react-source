@@ -50,6 +50,14 @@ function escapeUserProvidedKey(text) {
   return ('' + text).replace(userProvidedKeyEscapeRegex, '$&/');
 }
 
+/**
+ * 1.新建一个遍历上下文的池子 traverseContextPool
+ * 2.用来存放对象 traverseContext 对象，最多存放 10 个，在调用 releaseTraverseContext 方法时，将
+ * 	 traverseContext 对象 push 进去，用于性能优化
+ * 3.个人理解：在频繁创建对象时，需要新建大量对象，用完之后，需要释放这些对象，会造成内存抖动的问题，
+ * 			  这时候维护一个对象池就会缓解这个内存抖动的问题
+ * 4.children 有几层 traverseContextPool 对象池就有几个子元素
+ * */
 const POOL_SIZE = 10;
 const traverseContextPool = [];
 function getPooledTraverseContext(
@@ -58,7 +66,16 @@ function getPooledTraverseContext(
   mapFunction,
   mapContext,
 ) {
+	/**  
+	 * 这段代码的作用：
+	 * 	1.traverseContextPool 这个池子中如果有值，那就把最后一项取出来，赋值，返回回去
+	 * 	2.traverseContextPool 这个池子中如果没有值，length 为 0 时，直接返回一个对象
+	 * */
   if (traverseContextPool.length) {
+	  /**
+	   * 1.pop() 删除数组的最后一项，返回数组的最后一项，并改变源数组的长度
+	   * 2.此时用于从对象池中取出数组的最后一项
+	   * */
     const traverseContext = traverseContextPool.pop();
     traverseContext.result = mapResult;
     traverseContext.keyPrefix = keyPrefix;
@@ -77,6 +94,10 @@ function getPooledTraverseContext(
   }
 }
 
+/**
+ * 1.释放 traverseContext 对象，实质就是将 traverseContext 对象的属性值设置为 null
+ * 2.然后将 traverseContext 对象 push 到traverseContextPool 中
+ * */
 function releaseTraverseContext(traverseContext) {
   traverseContext.result = null;
   traverseContext.keyPrefix = null;
@@ -89,12 +110,19 @@ function releaseTraverseContext(traverseContext) {
 }
 
 /**
- * @param {?*} children Children tree container.
- * @param {!string} nameSoFar Name of the key path so far.
- * @param {!function} callback Callback to invoke with each child found.
- * @param {?*} traverseContext Used to pass information throughout the traversal
+ * 1.遍历 children
+ * 2.该函数 traverseAllChildrenImpl 是一个递归函数，递归思想
+ * 3.返回值是一个数字，就是子级的个数
+ * 4.children 是数组的话，调用自己，递归思想，最后返回一个子级数
+ * 5.children 是 null ，或者是 typeof children === string || typeof children === number || react dom
+ * 	 返回 1， 此时子级数是 1 
+ * 
+ * @param {?*} children Children tree container.子树容器
+ * @param {!string} nameSoFar Name of the key path so far. 到目前为止密钥路径的名称。
+ * @param {!function} callback Callback to invoke with each child found. 为找到的每个子级调用的回调
+ * @param {?*} traverseContext 用于在遍历过程中传递信息
  * process.
- * @return {!number} The number of children in this subtree.
+ * @return {!number} The number of children in this subtree. 此子树中的子级数
  */
 function traverseAllChildrenImpl(
   children,
@@ -109,6 +137,17 @@ function traverseAllChildrenImpl(
     children = null;
   }
 
+  /**  
+   * invokeCallback 是否调用回调函数 ，默认不调用 	invokeCallback = false
+   * 
+   * 1.children === null 调用回调函数				invokeCallback = true
+   * 2.typeof children === string 调用回调函数	invokeCallback = true
+   * 3.typeof children === number 调用回调函数	invokeCallback = true
+   * 4.typeof children === object && children.$$type === REACT_ELEMENT_TYPE 调用回调函数 
+   * 	invokeCallback = true
+   * 5.typeof children === object && children.$$type === REACT_PORTAL_TYPE 调用回调函数	
+   * 	invokeCallback = true
+   * */
   let invokeCallback = false;
 
   if (children === null) {
@@ -136,7 +175,7 @@ function traverseAllChildrenImpl(
       // so that it's consistent if the number of children grows.
       nameSoFar === '' ? SEPARATOR + getComponentKey(children, 0) : nameSoFar,
     );
-    return 1;
+    return 1;  // 返回 1，代表子树中的子级个数为1
   }
 
   let child;
@@ -145,6 +184,11 @@ function traverseAllChildrenImpl(
   const nextNamePrefix =
     nameSoFar === '' ? SEPARATOR : nameSoFar + SUBSEPARATOR;
 
+  /**
+   * children 是一个数组  
+   * 循环 children ，调用自己，递归思想，return subtreeCount子级数量；直到 child 为单节点，即不是数组时，停止递归
+   * traverseAllChildrenImpl 就是一个递归函数，在内部调用了自己
+   * */
   if (Array.isArray(children)) {
     for (let i = 0; i < children.length; i++) {
       child = children[i];
@@ -209,15 +253,7 @@ function traverseAllChildrenImpl(
 }
 
 /**
- * Traverses children that are typically specified as `props.children`, but
- * might also be specified through attributes:
- *
- * - `traverseAllChildren(this.props.children, ...)`
- * - `traverseAllChildren(this.props.leftPanelChildren, ...)`
- *
- * The `traverseContext` is an optional argument that is passed through the
- * entire traversal. It can be used to store accumulations or anything else that
- * the callback might find relevant.
+ * 遍历 children 
  *
  * @param {?*} children Children tree object.
  * @param {!function} callback To invoke upon traversing each child.
@@ -290,9 +326,22 @@ function mapSingleChildIntoContext(bookKeeping, child, childKey) {
 
   let mappedChild = func.call(context, child, bookKeeping.count++);
   if (Array.isArray(mappedChild)) {
+	  /** 
+	   * 1.这里是一个递归函数，大的递归函数
+	   * 
+	   * mapIntoWithKeyPrefixInternal 做了什么？
+	   * 1.从对象池中获取 traverseContext 对象
+	   * 2.遍历所有的 children
+	   * 3.释放 traverseContext 对象
+	   * */
     mapIntoWithKeyPrefixInternal(mappedChild, result, childKey, c => c);
   } else if (mappedChild != null) {
+	  /* 判断是不是一个合法的 reactElement 对象*/
     if (isValidElement(mappedChild)) {
+		/**
+		 * 1.cloneAndReplaceKey 方法就是克隆一个 reactElement 对象
+		 * 2.将源对象属性全部拿过来，给新对象，给新对象再重新设置一个 key
+		 * */
       mappedChild = cloneAndReplaceKey(
         mappedChild,
         // Keep both the (mapped) and old keys if they differ, just as
@@ -308,18 +357,33 @@ function mapSingleChildIntoContext(bookKeeping, child, childKey) {
   }
 }
 
+
+
 function mapIntoWithKeyPrefixInternal(children, array, prefix, func, context) {
   let escapedPrefix = '';
   if (prefix != null) {
     escapedPrefix = escapeUserProvidedKey(prefix) + '/';
   }
+  
+  /** 
+   * 创建 traverseContext 对象，从 traverContextPool 对象池中获取
+   * */
   const traverseContext = getPooledTraverseContext(
     array,
     escapedPrefix,
     func,
     context,
   );
+  
+  /**
+   * 遍历 children
+   * 使用 traverseContext 对象
+   * */
   traverseAllChildren(children, mapSingleChildIntoContext, traverseContext);
+  
+  /**
+   * 使用完，释放 traverseContext 对象，原理就是把属性值设置为 null
+   * */
   releaseTraverseContext(traverseContext);
 }
 
@@ -336,6 +400,9 @@ function mapIntoWithKeyPrefixInternal(children, array, prefix, func, context) {
  * @param {*} context Context for mapFunction.
  * @return {object} Object containing the ordered map of results.
  */
+/**  
+ * 返回 result
+ * */
 function mapChildren(children, func, context) {
   if (children == null) {
     return children;
@@ -392,8 +459,13 @@ function onlyChild(children) {
   return children;
 }
 
+/**
+ * 导出 ReactChildren 的 forEach 方法  	只是遍历 
+ * 导出 ReactChildren 的 map 方法  		遍历加返回
+ * */
+
 export {
-  forEachChildren as forEach,
+  forEachChildren as forEach, 
   mapChildren as map,
   countChildren as count,
   onlyChild as only,

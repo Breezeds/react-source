@@ -267,6 +267,10 @@ export function createFactory(type) {
   return factory;
 }
 
+/**  
+ * 1.克隆 reactElement 对象
+ * 2.将源对象属性全部拿过来，给新对象，给新对象重新设置一个 key
+ * */
 export function cloneAndReplaceKey(oldElement, newKey) {
   const newElement = ReactElement(
     oldElement.type,
