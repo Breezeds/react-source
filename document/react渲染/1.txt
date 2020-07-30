@@ -1,0 +1,13 @@
+reactDOM 创建更新
+源码位置 react-dom/src/client/ReactDOM.js	浏览器
+源码位置 react-dom/src/server/ReactDOM.js  	nodejs 下
+
+1.react-dom-render 创建更新的方式 主要三个api
+	1.ReactDOM.render || hadrate
+	2.setState
+	3.forceUpdate
+
+2.react-dom-render 步骤
+	1.创建 ReactRoot
+	2.创建 FiberRoot 和 RootFiber
+	3.创建更新
